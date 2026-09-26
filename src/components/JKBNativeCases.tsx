@@ -1,0 +1,7 @@
+import {useEffect,useState} from 'react';
+export default function JKBNativeCases({cases,value,onChange}:{cases:any[];value:string;onChange:(value:string)=>void}){
+ const [date,setDate]=useState(''),[entity,setEntity]=useState(''),[scenario,setScenario]=useState(''),[severity,setSeverity]=useState('');
+ useEffect(()=>{setDate('');setEntity('');setScenario('');setSeverity('')},[cases]);
+ const filtered=cases.filter(c=>(!date||c.asOf===date)&&(!entity||c.entity===entity)&&(!scenario||c.scenarioId===scenario)&&(!severity||c.severity===severity));
+ return <><div className="form-grid">{[{name:'As-of date',key:'asOf',value:date,set:setDate},{name:'Entity',key:'entity',value:entity,set:setEntity},{name:'Scenario / test case',key:'scenarioId',value:scenario,set:setScenario},{name:'Severity',key:'severity',value:severity,set:setSeverity}].map(f=><label className="field" key={f.key}>{f.name}<select value={f.value} onChange={e=>{f.set(e.target.value);onChange('')}}><option value="">All</option>{[...new Set(cases.map(c=>String(c[f.key])))].sort().map(v=><option key={v}>{v}</option>)}</select></label>)}</div><label className="field" style={{marginTop:20}}>Native scenario / element · {filtered.length} matching cases<select value={value} onChange={e=>onChange(e.target.value)}><option value="">Choose a case</option>{filtered.map(c=><option key={c.key} value={c.key}>{c.scenarioId} / {c.elementId} · {c.severity} · {c.asOf} · {c.label||c.elementType}</option>)}</select></label></>;
+}

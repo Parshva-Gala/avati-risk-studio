@@ -3,6 +3,8 @@ import { validateESGConfig } from './esg.mjs';
 import { calculateStress, validateScenarioWeights } from './risk.mjs';
 import { buildRiskCubeProjection, validateRiskCubeProjectionInput } from './riskcube-adapter.mjs';
 import { validateCubeConfig } from './cube.mjs';
+import { validateJKBConfig, JKB_CASES, JKB_SEVERITIES } from './jkb-stress.mjs';
+import { validateJKBWorkbookData } from './jkb-workbook.mjs';
 
 export const MAX_WORKSPACE_BYTES = 15_000_000;
 const banks = new Set(['midbank', 'jkb', 'nbi', 'jcb']);
@@ -50,6 +52,16 @@ export function validateSavedSettings(settings, facilities) {
     catch (error) { fail(`Stress settings: ${error.message}`); }
   }
   if (settings.stressPreset !== undefined && !['baseline', 'adverse', 'severe', 'custom'].includes(settings.stressPreset)) fail('Stress preset is not supported.');
+  if (settings.jkbStressConfig !== undefined) {
+    try { validateJKBConfig(settings.jkbStressConfig); }
+    catch (error) { fail(`JKB stress settings: ${error.message}`); }
+  }
+  if (settings.jkbWorkbook !== undefined && settings.jkbWorkbook !== null) {
+    try {
+      const checked = validateJKBWorkbookData(settings.jkbWorkbook);
+      if (!same(checked, settings.jkbWorkbook)) fail('The JKB workbook backup contains unsupported fields.');
+    } catch (error) { fail(`JKB workbook: ${error.message}`); }
+  }
   if (settings.cubeProjection !== undefined && settings.cubeProjection !== null) {
     if (!object(settings.cubeProjection)) fail('RiskCube projection must contain rows and selection.');
     const errors = validateRiskCubeProjectionInput(settings.cubeProjection.rows, settings.cubeProjection.selection);
@@ -66,6 +78,51 @@ export function validateSavedSettings(settings, facilities) {
 const portfolioSignature = rows => JSON.stringify([...rows].sort((a, b) => a.id.localeCompare(b.id)).map(row => COLUMNS.map(key => row[key])));
 const canonical = value => Array.isArray(value) ? value.map(canonical) : object(value) ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
 const same = (left, right) => JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
+const finiteOrNull = value => value === null || typeof value === 'number' && Number.isFinite(value);
+const near = (left, right) => left === null || right === null ? left === right : typeof left === 'number' && typeof right === 'number' && Math.abs(left - right) <= 1e-9 * Math.max(1, Math.abs(left), Math.abs(right));
+const JKB_METRICS = ['ead','ecl','cet1','at1','t2','totalCapital','rwaCredit','rwaMarket','rwaOperational','rwa','car','cet1Ratio','pbt','pat','hqla','outflows','inflows','netOutflows','lcr','asf','rsf','nsfr','liquidAssets','liquidLiabilities','legalLiquidity'];
+const JKB_RATIOS = new Set(['car','cet1Ratio','lcr','nsfr','legalLiquidity']);
+const jkbCategory = id => ['ead','ecl'].includes(id) ? 'Credit' : ['pbt','pat'].includes(id) ? 'Earnings' : id.startsWith('rwa') ? 'RWA' : ['cet1','at1','t2','totalCapital','car','cet1Ratio'].includes(id) ? 'Capital' : 'Liquidity';
+
+function validateJKBSnapshot(analysis, settings) {
+  if (!object(analysis) || analysis.schema !== 'AVATI_JKB_STRESS_V1' || !object(analysis.config)) fail('JKB snapshot is missing its supported schema and configuration.');
+  let config;
+  try { config = validateJKBConfig(analysis.config); }
+  catch (error) { fail(`JKB snapshot configuration: ${error.message}`); }
+  const definition = JKB_CASES.find(item => item.id === config.caseId);
+  if (!same(analysis.case, definition) || analysis.basis !== config.basis || !same(analysis.units, {currency:config.currency,amountUnit:config.amountUnit})) fail('JKB snapshot case, currency, scale or basis conflicts with its configuration.');
+  if(!same(analysis.shock,{...definition.shocks[config.severity],...config.overrides[config.caseId]?.[config.severity]}))fail('JKB snapshot shock conflicts with its selected severity and overrides.');
+  const source = config.source;
+  if (source?.currency !== undefined && source.currency !== config.currency || source?.amountUnit !== undefined && source.amountUnit !== config.amountUnit) fail('JKB snapshot cannot relabel native source currency or amount scale.');
+  if (source?.caseKey !== undefined) {
+    const pack = settings.jkbWorkbook;
+    const selected = pack?.cases?.find(item => item.key === source.caseKey);
+    if (!selected || pack.source.filename !== source.filename || pack.source.currency !== config.currency || pack.source.amountUnit !== config.amountUnit || selected.elementType.toLowerCase() !== definition.kind.toLowerCase() || selected.asOf !== source.asOf || selected.entity !== source.entity || selected.scenarioId !== source.scenarioId || selected.elementId !== source.elementId || selected.row !== source.row || source.sourceSheet !== pack.source.sourceSheet) fail('JKB snapshot native provenance does not match its retained workbook selection.');
+  }
+  for (const field of ['baseline','stressed','impact']) if (!object(analysis[field]) || !same(Object.keys(analysis[field]).sort(), [...JKB_METRICS].sort()) || Object.values(analysis[field]).some(value => !finiteOrNull(value))) fail('JKB snapshot financial metrics are missing or invalid.');
+  if (!Array.isArray(analysis.rows) || analysis.rows.length !== JKB_METRICS.length) fail('JKB snapshot requires one trace for every metric.');
+  const seen = new Set();
+  for (const row of analysis.rows) {
+    if (!object(row) || !JKB_METRICS.includes(row.id) || seen.has(row.id) || !text(row.label,300) || !text(row.formula,2000) || !text(row.sourceRef,1000) || row.unit !== (JKB_RATIOS.has(row.id)?'fraction':'amount')) fail('JKB snapshot metric identity, formula or unit is invalid.');
+    seen.add(row.id);
+    const base = analysis.baseline[row.id], post = analysis.stressed[row.id], delta = base === null || post === null ? null : post - base;
+    if (!near(row.preShock,base) || !near(row.postShock,post) || !near(row.delta,delta) || !near(row.shock,delta) || !near(analysis.impact[row.id],delta)) fail('JKB snapshot metric traces conflict with the pre/post-shock result.');
+  }
+  if (!Array.isArray(analysis.stages) || analysis.stages.length !== 3 || analysis.stages.some((row,index)=>!object(row)||row.stage!==index+1||['exposureBefore','exposureAfter','eclBefore','eclAfter','rwaBefore','rwaAfter'].some(key=>typeof row[key]!=='number'||row[key]<0))) fail('JKB snapshot stage transmission is invalid.');
+  if (!Array.isArray(analysis.checks) || !analysis.checks.length || analysis.checks.length>100) fail('JKB snapshot reconciliation checks are missing.');
+  const checkIds = new Set();
+  for (const check of analysis.checks) {
+    if (!object(check)||!text(check.id,120)||checkIds.has(check.id)||!text(check.label,500)||!['PASS','FAIL','BLOCKED'].includes(check.status)||!finiteOrNull(check.expected)||!finiteOrNull(check.actual)||!finiteOrNull(check.difference)) fail('JKB snapshot reconciliation check is invalid.');
+    checkIds.add(check.id);
+    if (check.expected === null || check.actual === null) { if(check.status!=='BLOCKED'||check.difference!==null)fail('Unavailable JKB checks must remain BLOCKED.'); }
+    else if(!near(check.difference,check.actual-check.expected)||check.status!==(Math.abs(check.actual-check.expected)<=1e-8*Math.max(1,Math.abs(check.expected))?'PASS':'FAIL'))fail('JKB snapshot control difference or status is inconsistent.');
+  }
+  if (!object(analysis.summary) || Object.values(analysis.summary).some(value=>!finiteOrNull(value))) fail('JKB snapshot summary must retain numeric values or unavailable nulls.');
+  if(analysis.summary.checksTotal!==analysis.checks.length||analysis.summary.checksPassed!==analysis.checks.filter(check=>check.status==='PASS').length)fail('JKB snapshot summary control counts are inconsistent.');
+  for(const [key,section,field] of [['baselineEcl','baseline','ecl'],['stressedEcl','stressed','ecl'],['incrementalEcl','impact','ecl'],['capitalBefore','baseline','totalCapital'],['capitalAfter','stressed','totalCapital'],['carBefore','baseline','car'],['carAfter','stressed','car'],['lcrAfter','stressed','lcr'],['nsfrAfter','stressed','nsfr']]) if(!near(analysis.summary[key],analysis[section][field]))fail('JKB snapshot summary conflicts with its financial result.');
+  if(!Array.isArray(analysis.comparison)||analysis.comparison.length!==JKB_SEVERITIES.length||analysis.comparison.some((item,index)=>!object(item)||item.severity!==JKB_SEVERITIES[index]||(item.error===null?(!object(item.summary)||Object.values(item.summary).some(value=>!finiteOrNull(value))):(!text(item.error,2000)||item.summary!==null))))fail('JKB severity comparison is invalid.');
+  if(!same(analysis.comparison.find(item=>item.severity===config.severity).summary,analysis.summary))fail('JKB selected severity conflicts with its comparison result.');
+}
 
 // These checks establish self-consistent local provenance, not source authenticity.
 function validateCubeSnapshot(analysis, portfolio, settings) {
@@ -130,8 +187,11 @@ export function validateWorkspaceData(raw) {
     if (payload.analysis.portfolioVersion !== undefined && payload.analysis.portfolioVersion !== run.portfolioVersion) fail('Saved analysis portfolio version conflicts with its metadata.');
     if (payload.analysis.bank !== undefined && payload.analysis.bank !== run.bank) fail('Saved analysis bank conflicts with its metadata.');
     if (run.module === 'Stress') {
-      if (!object(payload.analysis.config)) fail('Stress analysis is missing its calculation configuration.');
-      validateSavedSettings({ stressConfig: payload.analysis.config }, portfolio);
+      if(payload.analysis.schema !== undefined) validateJKBSnapshot(payload.analysis,payload.settings);
+      else {
+        if (!object(payload.analysis.config)) fail('Stress analysis is missing its calculation configuration.');
+        validateSavedSettings({ stressConfig: payload.analysis.config }, portfolio);
+      }
     }
     if (run.module === 'ECL') {
       if (!Array.isArray(payload.analysis.scenarios)) fail('ECL analysis is missing its economic scenarios.');
@@ -143,6 +203,14 @@ export function validateWorkspaceData(raw) {
     }
     if (run.module === 'RiskCube') {
       validateCubeSnapshot(payload.analysis, portfolio, payload.settings);
+    }
+    if(run.module==='Pivot'&&payload.analysis.source==='jkb'){
+      const pivot=payload.analysis;validateJKBSnapshot(pivot.jkbAssessment,payload.settings);
+      if(pivot.dimension!=='metric'||!['preShock','postShock','delta'].includes(pivot.measure)||!['','Credit','Earnings','Capital','RWA','Liquidity'].includes(pivot.category)||typeof pivot.tolerance!=='number'||pivot.tolerance<0)fail('JKB pivot metric view is invalid.');
+      const expectedUnit=pivot.unit==='fraction'?'fraction':`${pivot.jkbAssessment.units.currency} ${pivot.jkbAssessment.units.amountUnit}`;
+      if(pivot.unit!==expectedUnit)fail('JKB pivot unit must preserve its assessment currency and scale.');
+      const selected=pivot.jkbAssessment.rows.filter(row=>row.unit===(pivot.unit==='fraction'?'fraction':'amount')&&(!pivot.category||jkbCategory(row.id)===pivot.category));
+      if(!Array.isArray(pivot.groups)||pivot.groups.length!==selected.length||pivot.groups.some((row,index)=>!object(row)||row.key!==selected[index].id||row.id!==selected[index].id||row.unit!==selected[index].unit||row.category!==jkbCategory(row.id)||!near(row.value,selected[index][pivot.measure])))fail('JKB pivot rows conflict with their metric assessment or selected unit.');
     }
     runs.push({ ...run, payload: { ...payload, portfolio } });
   }

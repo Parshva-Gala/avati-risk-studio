@@ -31,7 +31,7 @@ The application is static and uses no server account or remote data API. Its fon
 | RiskCube | Shared scenario and sector/country scope; annual PD curves → credit loss → incremental capital impact, RWA and liquidity; facility lineage and reconciled controls |
 | Portfolio | CSV/XLSX template import, complete validation, search, filters, facility detail and export |
 | ESG | Configurable E/S/G weights, borrower assessments, financed emissions attribution, evidence checks and taxonomy review |
-| Stress lab | Shared imported annual PD calibration, baseline/adverse/severe presets, editable credit/market/income/operational/RWA drivers and reconciled capital bridge |
+| Stress lab | JKB workbench with 13 configured mechanisms, Moderate/Medium/Severe cases, native XLSM import, pre-/post-shock ECL/CET1/T2/RWA/P&L/LCR/NSFR traces, system-output reconciliation and shared RiskCube credit calibration |
 | IFRS 9 | Shared imported annual PD calibration, probability-weighted scenarios, explicit stage reasons and borrower contagion, marginal PD survival, discounting and facility traces |
 | Pivot Desk | Connected RiskCube starting/stressed ECL, incremental loss, stressed EAD and drawdown; optional portfolio metrics; sector/country/borrower grouping, filtering, Top N and CSV/XLSX exports |
 | Reconciliation | Independent control CSV, exact keys, absolute tolerances and PASS/FAIL/BLOCKED outcomes |
@@ -47,6 +47,12 @@ The same credit engine calculates starting ECL and stressed ECL. Their differenc
 **Model bridge** accepts a native `PROJECTED_PD_YEARWISE` CSV export. Select the source bank ID, model date, MEF date, scenario, first calendar year, PD unit and exact segment/country mapping, then confirm annual conditional PD interpretation. Every facility needs every remaining maturity year. Missing coverage, duplicate rows and invalid units block the connection; no partial flat-PD fallback is applied. A synthetic export is available to exercise this workflow.
 
 Connected curves become the starting calibration in **RiskCube, IFRS 9 and Stress lab**; each module retains its explicit scenario assumptions. **Pivot Desk** can aggregate the current connected scenario and reconcile its outputs. Captured RiskCube runs retain source rows, selection, provenance, annual curves, results and controls. See the [adapter contract](docs/RISKCUBE_ADAPTER.md) for native schema details and interpretation limits.
+
+## JKB stress workbench
+
+**Stress lab** now opens the source-derived JKB workflow: scenario library → pre-shock inputs → post-shock calculation → reconciliation. Import the native workbook through **Workbook bridge**, select its date/entity/scenario/severity, review the mapped inputs and compare independently calculated results with stored system outputs. The current Tool and V14 builds expose 137 unique native cases; the older automation build exposes 160. Missing source parameters stay visible and block calculation until completed.
+
+Native amounts retain their declared currency and scale. Portfolio mode uses the same calibrated facility ECL as RiskCube; native mode uses the selected workbook position. **Pivot Desk → JKB stress assessment** provides metric-level views and controls, and captures flow into Reports. The prior simplified calculator remains under **Quick sensitivity**. See [JKB workflow and model boundaries](docs/JKB_STRESS.md) and the [inspected source map](docs/JKB_STRESS_SOURCE_MAP.md).
 
 ## Four complete visual themes
 

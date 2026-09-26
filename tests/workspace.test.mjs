@@ -11,6 +11,8 @@ import * as workspaceModule from '../src/lib/workspace.mjs';
 import { buildRiskCubeProjection } from '../src/lib/riskcube-adapter.mjs';
 import { runCube, DEFAULT_CUBE_CONFIG } from '../src/lib/cube.mjs';
 import { connectedContext, riskInputs } from '../src/lib/cube-context.mjs';
+import { runJKBStress, DEFAULT_JKB_CONFIG } from '../src/lib/jkb-stress.mjs';
+import { mapJKBCaseToConfig, validateJKBWorkbookData } from '../src/lib/jkb-workbook.mjs';
 
 const source=fs.readFileSync(new URL('../src/lib/format.ts',import.meta.url),'utf8');
 const {csvCell}=await import('data:text/javascript;base64,'+Buffer.from(ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText).toString('base64'));
@@ -33,6 +35,19 @@ const connectedWorkspace=()=>{
   assert.equal(projection.valid,true);
   const analysis=runCube(w.facilities,{...DEFAULT_CUBE_CONFIG,runId:'captured-connected-1',pdOverrides:projection.facilityCurves,pdProvenance:projection.provenance});
   w.runs=[run('RiskCube',{payload:{modelVersion:'avati-1.0',analysis,portfolio:structuredClone(w.facilities),settings:structuredClone(w.settings)}})];
+  return JSON.parse(JSON.stringify(w));
+};
+const nativePack=()=>{
+  const inputs=structuredClone(DEFAULT_JKB_CONFIG.inputs),asOf='2026-01-31',entity='SYNTHETIC_BANK',scenarioId='SYN_CR',elementId='SYN_CR_E1',severity='MODERATE';
+  const key=JSON.stringify([asOf,entity,scenarioId,elementId,severity]);
+  return {source:{filename:'synthetic-jkb.xlsm',version:'JKB reconciliation pack',sheets:[{name:'Scenario Element Output',visibility:'visible'}],headerRow:3,sourceSheet:'Scenario Element Output',macroContentIgnored:true,containsMacros:true,currency:'JOD',amountUnit:'units',amountConversion:'none',recordCount:2,caseCount:1},cases:[{key,scenarioId,elementId,severity,asOf,entity,elementType:'Specified portfolio segment moves from performing to NPA',label:'Synthetic migration',row:5,inputs,shock:{pct:.1,amount:0,numCustomers:1},missingInputs:[],provenance:{},hasBaseline:true}],baselineInputs:{...inputs},baselines:[{asOf,entity,row:4,inputs:{...inputs},provenance:{}}],outputs:[{caseKey:key,values:{TOTAL_RWA:1000,REGULATORY_CAR:.2},status:'imported-system-snapshot'}],warnings:[],errors:[]};
+};
+const jkbWorkspace=(native=false)=>{
+  const w=workspace();let config=structuredClone(DEFAULT_JKB_CONFIG);
+  if(native){w.settings.jkbWorkbook=nativePack();config=mapJKBCaseToConfig(w.settings.jkbWorkbook,w.settings.jkbWorkbook.cases[0].key,config);}
+  w.settings.jkbStressConfig=config;
+  const analysis=runJKBStress(w.facilities,config);
+  w.runs=[run('Stress',{summary:Object.fromEntries(Object.entries(analysis.summary).map(([key,value])=>[key,value??'Unavailable'])),payload:{modelVersion:'avati-1.0',analysis,portfolio:structuredClone(w.facilities),settings:structuredClone(w.settings)}})];
   return JSON.parse(JSON.stringify(w));
 };
 
@@ -80,6 +95,36 @@ test('RiskCube settings reject malformed values and hidden PD overrides',()=>{
   const w=workspace();w.settings.cubeConfig={...DEFAULT_CUBE_CONFIG};assert.doesNotThrow(()=>validateWorkspaceData(w));
   w.settings.cubeConfig.macroPdMultiplier={};assert.throws(()=>validateWorkspaceData(w),/RiskCube settings/);
   w.settings.cubeConfig={...DEFAULT_CUBE_CONFIG,pdOverrides:[]};assert.throws(()=>validateWorkspaceData(w),/cubeProjection/);
+});
+test('JKB portfolio and native-currency snapshots round trip alongside legacy stress runs',()=>{
+  for(const native of [false,true]){const w=jkbWorkspace(native);w.runs.push(run('Stress',{id:'legacy-stress'}));assert.deepEqual(validateWorkspaceData(w),w);}
+  const w=jkbWorkspace(true);const analysis=w.runs[0].payload.analysis;
+  assert.equal(analysis.units.currency,'JOD');assert.equal(analysis.units.amountUnit,'units');
+  assert.equal(analysis.baseline.ead,1000);assert.equal(analysis.baseline.cet1,250);
+  assert.equal(validateJKBWorkbookData(w.settings.jkbWorkbook).source.amountConversion,'none');
+});
+test('malformed native settings and failed imports cannot poison restored workspace state',()=>{
+  for(const config of [null,{basis:'portfolio',currency:'JOD'},{basis:'portfolio',amountUnit:'units'},{severity:'ADVERSE'},{inputs:{taxRate:2}},{source:{currency:'EUR'}}]){const w=workspace();w.settings.jkbStressConfig=config;assert.throws(()=>validateWorkspaceData(w),/JKB stress/);}
+  for(const patch of [p=>{p.source.currency='LCY';},p=>{p.source.amountConversion='automatic';},p=>{p.source.currency={};},p=>{p.outputs[0].status='verified';},p=>{p.cases[0].inputs.cet1='=1+1';},p=>{p.cases.push({...p.cases[0]});},p=>{p.hiddenCache={customer:'not part of schema'};}]){const w=workspace();w.settings.jkbWorkbook=nativePack();patch(w.settings.jkbWorkbook);assert.throws(()=>validateWorkspaceData(w),/JKB workbook/);}
+  const w=workspace();w.settings.jkbWorkbook={source:null,cases:[],errors:['Import failed']};assert.throws(()=>validateWorkspaceData(w),/JKB workbook/);
+});
+test('JKB snapshot rejects relabeled currencies, wrong source cases and mixed metric units',()=>{
+  for(const patch of [a=>{a.units.currency='USD';},a=>{a.units.amountUnit='millions';},a=>{a.basis='portfolio';},a=>{a.case.id='market-fx';},a=>{a.shock.pct=.9;},a=>{a.rows[0].unit='fraction';},a=>{a.rows[0].postShock+=10;},a=>{a.rows[1].id=a.rows[0].id;},a=>{a.summary.capitalAfter+=1;},a=>{a.checks[0].status='FAIL';},a=>{a.config.source.entity='OTHER';}]){const w=jkbWorkspace(true);patch(w.runs[0].payload.analysis);assert.throws(()=>validateWorkspaceData(w),/JKB/);}
+  const w=jkbWorkspace(true);w.runs[0].payload.settings.jkbWorkbook.source.currency='EUR';assert.throws(()=>validateWorkspaceData(w),/native provenance/);
+});
+test('unavailable JKB ratios remain null in complete results and text in report summaries',()=>{
+  const w=workspace(),config={...structuredClone(DEFAULT_JKB_CONFIG),inputs:{...DEFAULT_JKB_CONFIG.inputs,outflows:80,inflows:80,rsf:0,liquidLiabilities:0}};
+  const analysis=runJKBStress(w.facilities,config);assert.equal(analysis.summary.lcrAfter,null);assert.equal(analysis.summary.nsfrAfter,null);
+  w.settings.jkbStressConfig=config;w.runs=[run('Stress',{summary:{lcrAfter:'Unavailable',nsfrAfter:'Unavailable'},payload:{modelVersion:'avati-1.0',analysis,portfolio:w.facilities,settings:w.settings}})];
+  assert.doesNotThrow(()=>validateWorkspaceData(JSON.parse(JSON.stringify(w))));
+});
+test('JKB metric pivots preserve one currency/unit and one row per metric without totals',()=>{
+  const w=jkbWorkspace(true),assessment=w.runs[0].payload.analysis;
+  const groups=assessment.rows.filter(row=>row.unit==='fraction').map(row=>({...row,key:row.id,category:['car','cet1Ratio'].includes(row.id)?'Capital':'Liquidity',value:row.postShock}));
+  const analysis={source:'jkb',dimension:'metric',measure:'postShock',unit:'fraction',category:'',sector:'',tolerance:.000001,groups,jkbAssessment:assessment};
+  w.runs=[run('Pivot',{summary:{metrics:groups.length,unit:'fraction'},payload:{modelVersion:'avati-1.0',analysis,portfolio:w.facilities,settings:w.settings}})];
+  assert.doesNotThrow(()=>validateWorkspaceData(w));
+  w.runs[0].payload.analysis.groups[0].unit='amount';assert.throws(()=>validateWorkspaceData(w),/JKB pivot/);
 });
 test('a captured connected run round trips with complete source projection and one consistent run ID',()=>{
   const w=connectedWorkspace();const restored=validateWorkspaceData(w);

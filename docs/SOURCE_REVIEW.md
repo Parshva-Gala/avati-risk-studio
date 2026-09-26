@@ -16,6 +16,10 @@ Reviewed during development on 27 September 2026. This is a synthesized implemen
 
 ## What the delivered edition preserves
 
+Follow-up source refresh: ALM/PivotDesk default branch was fetched and fast-forwarded to `5c12edfbb53c19454e6fe9b07e19142114ed0406`. This includes the top-customer build performance correction (`d247b30`) and per-sheet report filters / native-currency starting selection (`5c12edf`). The original workbook UI repair is maintained separately against that current source.
+
+The JKB follow-up inspected the actual `JKB Stress Testing - VBA & Builds` workbooks and recovery automation, replacing the initial simplified Stress entry point with 13 source-derived mechanisms and a native workbook case bridge. See [JKB integration](JKB_STRESS.md) and [exact source references](JKB_STRESS_SOURCE_MAP.md). The scope and distinctions recorded in those documents supersede the original limited JKB overview above.
+
 One validated facility master connects ESG, stress, ECL and pivot analysis. Captures include portfolio inputs and model settings. ESG assessment, E&S acceptability, financed emissions, taxonomy claims, conditional stress losses and accounting ECL retain distinct meanings. Bank selection controls presentation, while financial assumptions stay explicit.
 
 The module notes explain the implemented formulas and limitations: [ESG method](esg-method.md), [risk methods](risk-methods.md), and [RiskCube adapter](RISKCUBE_ADAPTER.md). Automated tests establish selected implementation properties with synthetic cases. They do not establish financial calibration, regulator acceptance, authenticated review, complete model coverage or source-document consistency.

@@ -1,5 +1,7 @@
 # Architecture
 
+The JKB stress workbench adds `jkb-stress.mjs` (source-derived mechanisms), `jkb-workbook.mjs` (bounded native XML import) and `jkb-reconcile.mjs` (independent system-output controls). Shared-portfolio mode consumes RiskCube's deterministic calibrated baseline; native mode preserves a separate currency and scale. JKB results feed metric-level Pivot views and saved Reports. Source outputs are controls, never inputs to their own reconciliation calculation. Workbook parsing ignores macros and external connections; unknown inputs remain unknown.
+
 React + TypeScript + Vite; pure JavaScript analytical modules; local browser persistence. RiskCube is the shared orchestration layer connecting exposures, ESG context, annual PD calibration, scenario transmission, credit loss, capital and liquidity. Native RiskCube integration uses a validated export adapter; no external data service or backend execution endpoint is called. ExcelJS is loaded on demand for workbook interchange. No client bank source files are bundled.
 
 ## Data flow
