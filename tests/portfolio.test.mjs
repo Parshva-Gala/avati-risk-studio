@@ -1,0 +1,7 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {demoPortfolio,validatePortfolio,aggregate,reconcile} from '../src/lib/portfolio.mjs';
+test('synthetic portfolio passes complete contract',()=>{assert.equal(validatePortfolio(demoPortfolio()).errors.length,0);assert.equal(demoPortfolio().length,18)});
+test('import rejects duplicate ids, missing values, non-finite inputs and currency mixing',()=>{for(const patch of [{balance:''},{pd:1.1},{rate:Infinity},{currency:'EGP'},{watchlist:'maybe'},{years:0}])assert.ok(validatePortfolio([{...demoPortfolio()[0],...patch}]).errors.length);assert.ok(validatePortfolio([demoPortfolio()[0],demoPortfolio()[0]]).errors.length)});
+test('aggregation conserves exposure',()=>{const p=demoPortfolio();assert.equal(aggregate(p).reduce((s,r)=>s+r.value,0),p.reduce((s,r)=>s+r.balance,0))});
+test('weighted averages use drawn exposures',()=>{const p=[{...demoPortfolio()[0],balance:100,pd:.01},{...demoPortfolio()[0],id:'B',balance:300,pd:.05}];assert.equal(aggregate(p,'sector','pd')[0].value,.04)});
+test('reconciliation never offsets breaks or treats missing as zero',()=>{const r=reconcile([{key:'a',value:100},{key:'b',value:100},{key:'c',value:0}],[{key:'a',value:105},{key:'b',value:95}]);assert.deepEqual(r.map(r=>r.status),['FAIL','FAIL','BLOCKED']);assert.equal(r[2].delta,null)});
+test('reconciliation rejects invalid controls',()=>{assert.throws(()=>reconcile([{key:'x',value:1},{key:'x',value:2}],[]));assert.throws(()=>reconcile([{key:'x',value:NaN}],[]));assert.throws(()=>reconcile([],[],-1))});

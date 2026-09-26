@@ -1,0 +1,25 @@
+# Source review and implementation decisions
+
+Reviewed during development on 27 September 2026. This is a synthesized implementation record, not a bank policy approval. No customer records, proprietary source documents or original bank workbooks are included in this repository. Demonstration records are synthetic.
+
+| Source family inspected | What informed Risk Studio | Boundary retained |
+| --- | --- | --- |
+| Created ESG Banking Framework; existing ESG cloud application and portable Android web source | Shared portfolio, separate financial/ESG conclusions, explicit evidence, immutable input captures, validation and coverage | Original cloud identity and Android persistence are not presented as enterprise capabilities of this browser edition. The existing full ESG engine was reviewed; the current shared facility schema supports a smaller documented corporate route. |
+| Avati ESG module library: financed-emissions methodology/practical notes, product and model inventory, regulatory-reference inventory | Drawn-financing attribution, inventory evidence, activity-level sustainable-finance review | Internal explanations are secondary references. Unsupported factor routes, illustrative unit errors and statements excluding banks' direct operational emissions were not carried into calculations. Reference inventories were inspected selectively, not every PDF/workbook independently validated. |
+| Midbank PivotDesk interface and application source | Bank-branded workspace, prominent workbench entry points, reusable analysis, shared visual treatment through downstream pages | Appearance does not establish bank-specific financial policy. The original PivotDesk is a separate application and is being maintained separately from the combined studio. |
+| JKB V15 build-kit documentation, cockpit/theme/reconciliation VBA and shock catalog; older exported stress build | Scenario → case → base → pre-shock → shock → post-shock lineage; PASS/FAIL/BLOCKED reconciliation; missing-data distinction; light-blue bank theme | Source build variants and unresolved BRD rule conflicts prevent automatic promotion of historical coefficients or filters into approved production assumptions. |
+| JKB final stress business requirements | Need for explicit scenario identifiers, accounting scope and source-to-result traceability | Conflicting scenario/filter/scope definitions are not resolved by guessing or by choosing a visual theme. |
+| NBI IFRS 9 draft requirements, version 1.10 dated January 2026 | Staging, borrower-level contagion, separate PD/LGD/EAD inputs, probability-weighted ECL and reproducible run inputs | The draft's DPD prose and boundary table differ. Risk Studio uses a stated synthetic staging policy, not an asserted NBI-approved rule. |
+| A separately named NBI IFRS 9 BRD file | Source-identity check before adopting rules | Its internal identity concerns another institution and jurisdiction. It was not treated as authoritative NBI policy simply because of its filename or folder. |
+| JCB stress business rules, logic workbook and design sheet inventory | Distinction between sector concentration and aggregated borrowers; separate guarantee, deposit stability, FX and limit considerations | Draft filters differ. These concepts require separately reviewed model contracts and calibration; they are not silently activated by the JCB theme. |
+| Existing RiskCube Flask IFRS modelling request, dispatch, data-service and PD-calculation contracts | Explicit bank/model/MEF/scenario/segment provenance; native yearwise PD export mapping; complete facility curves connected to ECL, capital and liquidity | The execution route launches database-writing jobs and is not a read-only results API. No jobs or network calls were made. The bridge requires explicit annual-conditional PD units/basis and blocks missing coverage. No deployment availability was established. |
+
+## What the delivered edition preserves
+
+One validated facility master connects ESG, stress, ECL and pivot analysis. Captures include portfolio inputs and model settings. ESG assessment, E&S acceptability, financed emissions, taxonomy claims, conditional stress losses and accounting ECL retain distinct meanings. Bank selection controls presentation, while financial assumptions stay explicit.
+
+The module notes explain the implemented formulas and limitations: [ESG method](esg-method.md), [risk methods](risk-methods.md), and [RiskCube adapter](RISKCUBE_ADAPTER.md). Automated tests establish selected implementation properties with synthetic cases. They do not establish financial calibration, regulator acceptance, authenticated review, complete model coverage or source-document consistency.
+
+## Required production decisions
+
+Before production use, define stable borrower/legal-entity identifiers, approved source mappings, account permissions, protected storage, evidence custody, model calibration, policy versions and independent validation. Resolve source conflicts through the responsible bank owners. Importing a historical workbook or selecting a bank theme does not perform those decisions.
